@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33829.357
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "idapatch-fork", "idapatch-fork.vcxproj", "{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		ida32 Debug|x64 = ida32 Debug|x64
+		ida32 Debug|x86 = ida32 Debug|x86
+		ida64 Debug|x64 = ida64 Debug|x64
+		ida64 Debug|x86 = ida64 Debug|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida32 Debug|x64.ActiveCfg = ida32 Debug|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida32 Debug|x64.Build.0 = ida32 Debug|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida32 Debug|x86.ActiveCfg = Release|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida32 Debug|x86.Build.0 = Release|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida64 Debug|x64.ActiveCfg = ida64 Debug|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida64 Debug|x64.Build.0 = ida64 Debug|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida64 Debug|x86.ActiveCfg = ida64 Debug|Win32
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.ida64 Debug|x86.Build.0 = ida64 Debug|Win32
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.Release|x64.ActiveCfg = Release|x64
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.Release|x86.ActiveCfg = Release|Win32
+		{D6EA6045-6ED5-45A2-9A39-6B95511E12CA}.Release|x86.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {C1692DA2-D835-4C4B-901B-0ABC297BB117}
+	EndGlobalSection
+EndGlobal
