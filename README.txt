@@ -20,6 +20,6 @@ Example (taken from upstream, modified as per above scheme -- patch likely no-lo
 
 [UniSoft (exetools) qstpncpy crash fix (IDA 6.8)]
 enabled=0 ; optional (default '1'), set to 0 to disable this patch
-module=dll ; optional (default 'dll'), 'wll' will patch ida.dll or ida64.dll, 'exe' will patch ida.exe or ida64.exe, anything else will patch a module with that name (clp.dll will patch in clp.dll)
+module=dll ; optional (default 'dll'), 'dll' will patch ida.dll or ida64.dll, 'exe' will patch ida.exe or ida64.exe, anything else will patch a module with that name (clp.dll will patch in clp.dll)
 search=03 C8 3B C1 72 14 80 3D ; search pattern, nibble wildcards (so ?? for one wildcard byte)
 replace=03 C8 3B C1 72 14 EB 30 ; replace pattern, nibble wildcards
