@@ -9,9 +9,7 @@
 #include "patternfind.h"
 #include "Utf8Ini.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#else
+#ifndef _WIN32
 #include <dlfcn.h>
 #include <semaphore.h>
 #endif

@@ -3,7 +3,8 @@
 #include <string_view>
 
 #ifdef _WIN32
-#include <windef.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 using module_t = HMODULE;
 #else
 using module_t = void*;

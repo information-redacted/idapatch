@@ -1,7 +1,6 @@
 #include "module.h"
 
 #ifdef _WIN32
-#include <windows.h>
 #include <psapi.h>
 #else
 #include <cstring>
