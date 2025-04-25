@@ -1,12 +1,20 @@
-#include <windows.h>
+#include <fstream>
+
 #include <ida.hpp>
 #include <idp.hpp>
 #include <loader.hpp>
 #include <kernwin.hpp>
-#include <psapi.h>
 
-#include "Utf8Ini.h"
+#include "module.h"
 #include "patternfind.h"
+#include "Utf8Ini.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#include <semaphore.h>
+#endif
 
 struct Patch {
     std::string name;
@@ -16,55 +24,33 @@ struct Patch {
     std::string replace;
 };
 
-static void dprintf(const char* format, ...) {
-    static char dprintf_msg[2048];
-    va_list args;
-    va_start(args, format);
-    *dprintf_msg = 0;
-    vsnprintf_s(dprintf_msg, sizeof(dprintf_msg), format, args);
-#ifdef DEBUG
-    static auto hasConsole = false;
-    if (!hasConsole) {
-        hasConsole = true;
-        AllocConsole();
-    }
-    DWORD written = 0;
-    WriteConsoleA(GetStdHandle(STD_OUTPUT_HANDLE), dprintf_msg, lstrlenA(dprintf_msg), &written, nullptr);
+void logmsg(const char* fmt, ...) {
+    va_list arglist;
+    va_start(arglist, fmt);
+    vmsg(fmt, arglist);
+    va_end(arglist);
+}
+
+#ifdef _WIN32
+constexpr std::string_view PlatformString = "windows";
+#elif defined(__APPLE__)
+constexpr std::string_view PlatformString = "macos";
 #else
-    OutputDebugStringA(dprintf_msg);
-#endif //DEBUG
-}
+constexpr std::string_view PlatformString = "linux";
+#endif
 
-static void dputs(const char* text) {
-    dprintf("%s\n", text);
-}
-
-static void do_patching(const wchar_t* ini_file) {
+static void do_patching(std::string_view ini_file) {
     Utf8Ini ini;
-    auto hFile = CreateFileW(ini_file, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (hFile != INVALID_HANDLE_VALUE) {
-        auto fileSize = GetFileSize(hFile, nullptr);
-        if (fileSize) {
-            auto iniData = new char[fileSize + 1];
-            iniData[fileSize] = '\0';
-            DWORD read;
-            if (ReadFile(hFile, iniData, fileSize, &read, nullptr)) {
-                int errorLine;
-                if (!ini.Deserialize(iniData, errorLine)) {
-                    dprintf("Deserialize failed (line %d)...\n", errorLine);
-                    ini.Clear();
-                }
-            } else {
-                dputs("ReadFile failed...");
-            }
-            delete[] iniData;
-        } else {
-            dputs("GetFileSize failed...");
-        }
 
-        CloseHandle(hFile);
+    if (std::ifstream file(ini_file.data()); !file.fail()) {
+        std::string iniData((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        int errorLine;
+        if (!ini.Deserialize(iniData, errorLine)) {
+            logmsg("Deserialize failed (line %d)...\n", errorLine);
+            ini.Clear();
+        }
     } else {
-        dputs("CreateFileW failed...");
+        logmsg("Creating stream for INI file (%s) failed...\n", ini_file.data());
     }
 
     std::vector<Patch> patches;
@@ -77,71 +63,63 @@ static void do_patching(const wchar_t* ini_file) {
         patch.replace = ini.GetValue(section, "replace");
         auto enabled = ini.GetValue(section, "enabled");
         patch.module = ini.GetValue(section, "module");
-        if (!patch.module.length())
-            patch.module = "dll";
-        if (enabled == "0") {
-            dprintf("%s disabled...\n", patch.name.c_str());
+        auto platform = ini.GetValue(section, "platform");
+        if (enabled == "0" || (!platform.empty() && platform != PlatformString)) {
+            logmsg("%s disabled...\n", patch.name.c_str());
             continue;
         }
         if (!patterntransform(searchData, patch.search) || !patterntransform(patch.replace, patch.replaceTr)) {
-            dprintf("Invalid data in %s...\n", section.c_str());
+            logmsg("Invalid data in %s...\n", section.c_str());
             continue;
         }
-        dprintf("%s loaded!\n", patch.name.c_str());
+        logmsg("%s loaded!\n", patch.name.c_str());
         patches.push_back(patch);
     }
 
     auto patched = 0;
     for (const auto& patch : patches) {
-        HMODULE hModule;
-        if (patch.module == "dll") {
-            hModule = GetModuleHandleA("ida.dll");
-            if (!hModule)
-                hModule = GetModuleHandleA("ida64.dll");
-        } else if (patch.module == "exe") {
-            hModule = GetModuleHandleA("ida.exe");
-            if (!hModule)
-                hModule = GetModuleHandleA("ida64.exe");
-        } else {
-            hModule = GetModuleHandleA(patch.module.c_str());
-        }
+        module_t module;
+        if (patch.module == "dll")
+            module = get_libida_handle();
+        else if (patch.module == "exe")
+            module = get_idaexe_handle();
+        else
+            module = get_module_handle(patch.module);
 
-        if (!hModule) {
-            dprintf("Failed to find module %s for patch %s...\n", patch.module.c_str(), patch.name.c_str());
+        if (!module) {
+            logmsg("Failed to find module %s for patch %s...\n", patch.module.c_str(), patch.name.c_str());
             continue;
         }
-        MODULEINFO modinfo;
-        if (!GetModuleInformation(GetCurrentProcess(), hModule, &modinfo, sizeof(modinfo))) {
-            dprintf("GetModuleInformation failed for module %s (%p)...\n", patch.module.c_str(), hModule);
+        unsigned char* data;
+        size_t datasize;
+        if (!get_module_data(module, data, datasize)) {
+            logmsg("Failed to get data of module %s (%p)...\n", patch.module.c_str(), module);
             continue;
         }
-        auto data = (unsigned char*)modinfo.lpBaseOfDll;
-        auto datasize = size_t(modinfo.SizeOfImage);
         auto found = patternfind(data, datasize, patch.search);
         if (found == -1) {
-            dprintf("Failed to find pattern for %s...\n", patch.name.c_str());
+            logmsg("Failed to find pattern for %s...\n", patch.name.c_str());
             continue;
         }
         auto buffersize = patch.replaceTr.size();
         auto buffer = new unsigned char[buffersize];
         memcpy(buffer, data + found, buffersize);
         patternwrite(buffer, buffersize, patch.replace.c_str());
-        SIZE_T written;
 
-        DWORD oldprotect;
-        VirtualProtectEx(GetCurrentProcess(), data + found, buffersize, PAGE_EXECUTE_READWRITE, &oldprotect);
-        if (WriteProcessMemory(GetCurrentProcess(), data + found, buffer, buffersize, &written)) {
+        if (write_memory(data + found, buffer, buffersize)) {
             patched++;
         } else {
-            dprintf("WriteProcessMemory failed...");
-            dprintf("%d", GetLastError());
+        #ifdef _WIN32
+            logmsg("Writing memory failed (%d)...\n", GetLastError());
+        #else
+            logmsg("Writing memory failed (%d)...\n", errno);
+        #endif
         }
-        VirtualProtectEx(GetCurrentProcess(), data + found, buffersize, oldprotect, &oldprotect);
 
         delete[] buffer;
     }
 
-    dprintf("%d/%d patches successful!\n", patched, int(patches.size()));
+    logmsg("%d/%d patches successful!\n", patched, int(patches.size()));
 }
 
 struct plugin_ctx_t : public plugmod_t {
@@ -157,6 +135,7 @@ static plugmod_t* idaapi init() {
     return new plugin_ctx_t;
 }
 
+#ifdef _WIN32
 BOOL WINAPI DllMain(
     _In_ HINSTANCE hinstDLL,
     _In_ DWORD     fdwReason,
@@ -166,16 +145,40 @@ BOOL WINAPI DllMain(
         char mutexName[32] = "";
         sprintf_s(mutexName, "idapatch%X", GetCurrentProcessId());
         if (CreateMutexA(nullptr, FALSE, mutexName) && GetLastError() != ERROR_ALREADY_EXISTS) {
-            wchar_t patchIni[MAX_PATH] = L"";
-            if (GetModuleFileNameW(hinstDLL, patchIni, _countof(patchIni))) {
-                *wcsrchr(patchIni, L'\\') = L'\0';
-                wcscat_s(patchIni, L"\\idapatch.ini");
+            char patchIni[MAX_PATH];
+            if (GetModuleFileNameA(hinstDLL, patchIni, sizeof(patchIni))) {
+                *strrchr(patchIni, '\\') = '\0';
+                strcat_s(patchIni, "\\idapatch.ini");
                 do_patching(patchIni);
             }
         }
     }
     return true;
 }
+#else
+__attribute__((constructor)) static void on_load() {
+    char semName[32];
+    snprintf(semName, sizeof(semName), "/idapatch%d", getpid());
+
+    sem_t* sem = sem_open(semName, O_CREAT | O_EXCL, 0644, 1);
+    if (sem == SEM_FAILED)
+        return;
+
+    Dl_info dl_info;
+    if (dladdr(reinterpret_cast<void*>(on_load), &dl_info) && dl_info.dli_fname) {
+        char* patchIni = strdup(dl_info.dli_fname);
+        if (patchIni) {
+            *strrchr(patchIni, '/') = '\0';
+            strncat(patchIni, "/idapatch.ini", 14);
+            do_patching(patchIni);
+            free(patchIni);
+        }
+    }
+
+    sem_close(sem);
+    sem_unlink(semName);
+}
+#endif
 
 plugin_t PLUGIN =
 {
