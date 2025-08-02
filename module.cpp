@@ -10,27 +10,30 @@
 #include <unistd.h>
 #endif
 
-inline module_t handle_or(std::string_view lhs, std::string_view rhs) {
-    if (module_t handle = get_module_handle(lhs))
-        return handle;
-    return get_module_handle(rhs);
+inline module_t handle_or(std::initializer_list<std::string_view> candidates) {
+    for (const auto& candidate : candidates) {
+        if (module_t handle = get_module_handle(candidate)) {
+            return handle;
+        }
+    }
+    return module_t{};
 }
 
 module_t get_idaexe_handle() {
 #ifdef _WIN32
-    return handle_or("ida.exe", "ida64.exe");
+    return handle_or({"ida.exe", "ida64.exe"});
 #else
-    return handle_or("ida", "ida64");
+    return handle_or({"ida", "ida64"});
 #endif
 }
 
 module_t get_libida_handle() {
 #ifdef _WIN32
-    return handle_or("ida.dll", "ida64.dll");
+    return handle_or({"ida.dll", "ida64.dll", "ida32.dll"});
 #elif defined(__APPLE__)
-    return handle_or("libida.dylib", "libida64.dylib");
+    return handle_or({"libida.dylib", "libida64.dylib", "libida32.dylib"});
 #else
-    return handle_or("libida.so", "libida64.so");
+    return handle_or({"libida.so", "libida64.so", "libida32.so"});
 #endif
 }
 
