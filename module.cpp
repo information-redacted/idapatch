@@ -52,23 +52,32 @@ bool get_module_data(module_t handle, unsigned char*& data, size_t& size) {
 
     std::ifstream maps("/proc/self/maps");
     std::string line;
+
     uintptr_t base_addr = reinterpret_cast<uintptr_t>(map->l_addr);
-    uintptr_t module_end{};
+    uintptr_t module_start = 0;
+    uintptr_t module_end = 0;
 
     while (std::getline(maps, line)) {
-        if (line.find(map->l_name) != std::string::npos) {
-            std::string range = line.substr(0, line.find(' '));
-            if (size_t dash = range.find('-'); dash != std::string::npos) {
-                uintptr_t start = std::stoul(range.substr(0, dash), nullptr, 16);
-                uintptr_t end = std::stoul(range.substr(dash + 1), nullptr, 16);
-                if (start == base_addr && end > module_end)
-                    module_end = end;
-            }
+        if (line.find(map->l_name) == std::string::npos)
+            continue;
+
+        std::string range = line.substr(0, line.find(' '));
+        if (size_t dash = range.find('-'); dash != std::string::npos) {
+            uintptr_t start = std::stoul(range.substr(0, dash), nullptr, 16);
+            uintptr_t end   = std::stoul(range.substr(dash + 1), nullptr, 16);
+
+            if (!module_start || start < module_start)
+                module_start = start;
+            if (end > module_end)
+                module_end = end;
         }
     }
 
-    data = reinterpret_cast<unsigned char*>(map->l_addr);
-    size = module_end - base_addr;
+    if (!module_start || !module_end)
+        return false;
+
+    data = reinterpret_cast<unsigned char*>(module_start);
+    size = module_end - module_start;
 #endif
     return true;
 }
@@ -77,7 +86,23 @@ module_t get_module_handle(std::string_view name) {
 #ifdef _WIN32
     return GetModuleHandleA(name.data());
 #else
-    return dlopen(name.data(), RTLD_LAZY);
+    std::ifstream maps("/proc/self/maps");
+    std::string line;
+
+    while (std::getline(maps, line)) {
+        auto pos = line.find('/');
+        if (pos == std::string::npos)
+            continue;
+
+        std::string path = line.substr(pos);
+        if (path.size() >= name.size() &&
+            path.compare(path.size() - name.size(), name.size(), name) == 0)
+        {
+            if (void* handle = dlopen(path.c_str(), RTLD_NOLOAD | RTLD_LAZY))
+                return handle;
+        }
+    }
+    return nullptr;
 #endif
 }
 
