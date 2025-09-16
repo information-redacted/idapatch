@@ -3,7 +3,7 @@ idapatch
 An IDA plugin to patch IDA in memory.
 
 This is an updated copy of MrExodia's idapatch plugin which can be found at: https://github.com/mrexodia/idapatch
-This has only been tested against the SDK for IDA Pro 8.3 (idasdk-pro83)
+This has been tested with IDA Pro 8.3 -> 9.2
 
 Usage
 -----
