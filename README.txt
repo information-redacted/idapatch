@@ -15,6 +15,9 @@ Configuration
 Changes were made to the upstream configuration scheme;
  - The module field now takes 'dll' instead of 'wll' as 'ida.wll', 'ida64.wll' are now named .dll.
  - The 'exe' type now patches 'ida' instead of 'idaq'.
+ - You can now specify a specific module to patch (such as another plugin, or dependency)
+ - The `[idapatch_settings]` section was added to allow for global settings such as configuring the loop delay;
+   - The default loop time is 2s, and can be changed by setting `loop_delay_ms`.
 
 Example (taken from upstream, modified as per above scheme -- patch likely no-longer works!):
 
