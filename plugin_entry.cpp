@@ -79,6 +79,7 @@ static void do_patching(std::string_view ini_file) {
 
     int patched = 0;
     int sleep_ms = 250;
+
     auto try_apply = [&](Patch &patch) -> bool {
         module_t module;
         if (patch.module == "dll")
@@ -118,13 +119,28 @@ static void do_patching(std::string_view ini_file) {
         return ok;
     };
 
+    auto is_module_loaded = [&](const std::string& module) -> bool {
+        // we're never going to unload ida itself, but might as well check
+        // ghosts are real, and they're in my computer
+        if (module == "dll")
+            return get_libida_handle() != nullptr;
+        else if (module == "exe")
+            return get_idaexe_handle() != nullptr;
+        else
+            return get_module_handle(module) != nullptr;
+    };
+
     while (true) {
-        bool any_pending = false;
         bool applied_this_iteration = false;
+
         for (auto &patch : patches) {
+            if (patch.applied && !is_module_loaded(patch.module)) {
+                patch.applied = false;
+                logmsg("%s reverted (module unloaded)\n", patch.name.c_str());
+            }
+
             if (patch.applied)
                 continue;
-            any_pending = true;
 
             if (try_apply(patch)) {
                 patch.applied = true;
@@ -134,19 +150,12 @@ static void do_patching(std::string_view ini_file) {
             }
         }
 
-        if (!any_pending)
-            break;
-
-        // backoff (cpu hurty)
         if (applied_this_iteration)
             sleep_ms = 250;
         else {
-            if (sleep_ms < 5000)
-                sleep_ms *= 2;
-            if (sleep_ms > 5000)
-                sleep_ms = 5000;
+            if (sleep_ms < 1000) sleep_ms *= 2;
+            if (sleep_ms > 1000) sleep_ms = 1000;
         }
-
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
 
@@ -158,7 +167,6 @@ struct plugin_ctx_t : public plugmod_t {
 };
 
 bool idaapi plugin_ctx_t::run(size_t) {
-    // no-op
     return true;
 }
 
@@ -183,7 +191,7 @@ BOOL WINAPI DllMain(
                 try {
                     std::thread([path = std::string(patchIni)](){ do_patching(path); }).detach();
                 } catch (...) {
-                    do_patching(patchIni); // patch if we fail to thread, at least some will apply
+                    do_patching(patchIni);
                 }
             }
         }
@@ -218,14 +226,14 @@ __attribute__((constructor)) static void on_load() {
 plugin_t PLUGIN =
 {
   IDP_INTERFACE_VERSION,
-  PLUGIN_FIX			// Load the plugin on startup instead of on file load
-  | PLUGIN_HIDE			// Hide the plugin from the Edit->Plugins menu
-  | PLUGIN_MULTI,       // The plugin can work with multiple idbs in parallel
-  init,                 // initialize
+  PLUGIN_FIX
+  | PLUGIN_HIDE
+  | PLUGIN_MULTI,
+  init,
   nullptr,
   nullptr,
-  nullptr,              // long comment about the plugin
-  nullptr,              // multiline help about the plugin
-  "idapatch",           // the preferred short name of the plugin
-  nullptr,              // the preferred hotkey to run the plugin
+  nullptr,
+  nullptr,
+  "idapatch",
+  nullptr,
 };
