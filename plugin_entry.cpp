@@ -47,11 +47,11 @@ static void do_patching(std::string_view ini_file) {
         std::string iniData((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         int errorLine;
         if (!ini.Deserialize(iniData, errorLine)) {
-            logmsg("Deserialize failed (line %d)...\n", errorLine);
+            logmsg("[idapatch] Deserialize failed (line %d)...\n", errorLine);
             ini.Clear();
         }
     } else {
-        logmsg("Creating stream for INI file (%s) failed...\n", ini_file.data());
+        logmsg("[idapatch] Creating stream for INI file (%s) failed...\n", ini_file.data());
     }
 
     std::vector<Patch> patches;
@@ -66,14 +66,14 @@ static void do_patching(std::string_view ini_file) {
         patch.module = ini.GetValue(section, "module");
         auto platform = ini.GetValue(section, "platform");
         if (enabled == "0" || (!platform.empty() && platform != PlatformString)) {
-            logmsg("%s disabled...\n", patch.name.c_str());
+            logmsg("[idapatch] patch '%s' disabled...\n", patch.name.c_str());
             continue;
         }
         if (!patterntransform(searchData, patch.search) || !patterntransform(patch.replace, patch.replaceTr)) {
-            logmsg("Invalid data in %s...\n", section.c_str());
+            logmsg("[idapatch] Invalid data in patch '%s'...\n", section.c_str());
             continue;
         }
-        logmsg("%s loaded!\n", patch.name.c_str());
+        logmsg("[idapatch] patch '%s' loaded!\n", patch.name.c_str());
         patches.push_back(patch);
     }
 
@@ -95,7 +95,7 @@ static void do_patching(std::string_view ini_file) {
         unsigned char* data;
         size_t datasize;
         if (!get_module_data(module, data, datasize)) {
-            logmsg("Failed to get data of module %s (%p)...\n", patch.module.c_str(), module);
+            logmsg("[idapatch] Failed to get data of module %s (%p)...\n", patch.module.c_str(), module);
             return false;
         }
         auto found = patternfind(data, datasize, patch.search);
@@ -110,9 +110,9 @@ static void do_patching(std::string_view ini_file) {
         bool ok = write_memory(data + found, buffer, buffersize);
         if (!ok) {
         #ifdef _WIN32
-            logmsg("Writing memory failed (%d)...\n", GetLastError());
+            logmsg("[idapatch] Writing memory failed (%d)...\n", GetLastError());
         #else
-            logmsg("Writing memory failed (%d)...\n", errno);
+            logmsg("[idapatch] Writing memory failed (%d)...\n", errno);
         #endif
         }
         delete[] buffer;
@@ -136,7 +136,7 @@ static void do_patching(std::string_view ini_file) {
         for (auto &patch : patches) {
             if (patch.applied && !is_module_loaded(patch.module)) {
                 patch.applied = false;
-                logmsg("%s reverted (module unloaded)\n", patch.name.c_str());
+                logmsg("[idapatch] patch '%s' reverted (module unloaded)\n", patch.name.c_str());
             }
 
             if (patch.applied)
@@ -146,7 +146,7 @@ static void do_patching(std::string_view ini_file) {
                 patch.applied = true;
                 patched++;
                 applied_this_iteration = true;
-                logmsg("%s applied!\n", patch.name.c_str());
+                logmsg("[idapatch] patch '%s' applied!\n", patch.name.c_str());
             }
         }
 
