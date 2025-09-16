@@ -1,4 +1,6 @@
 #include <fstream>
+#include <thread>
+#include <chrono>
 
 #include <ida.hpp>
 #include <idp.hpp>
@@ -20,6 +22,7 @@ struct Patch {
     std::vector<PatternByte> search;
     std::vector<PatternByte> replaceTr;
     std::string replace;
+    bool applied = false;
 };
 
 void logmsg(const char* fmt, ...) {
@@ -74,8 +77,9 @@ static void do_patching(std::string_view ini_file) {
         patches.push_back(patch);
     }
 
-    auto patched = 0;
-    for (const auto& patch : patches) {
+    int patched = 0;
+    int sleep_ms = 250;
+    auto try_apply = [&](Patch &patch) -> bool {
         module_t module;
         if (patch.module == "dll")
             module = get_libida_handle();
@@ -84,37 +88,66 @@ static void do_patching(std::string_view ini_file) {
         else
             module = get_module_handle(patch.module);
 
-        if (!module) {
-            logmsg("Failed to find module %s for patch %s...\n", patch.module.c_str(), patch.name.c_str());
-            continue;
-        }
+        if (!module)
+            return false;
+
         unsigned char* data;
         size_t datasize;
         if (!get_module_data(module, data, datasize)) {
             logmsg("Failed to get data of module %s (%p)...\n", patch.module.c_str(), module);
-            continue;
+            return false;
         }
         auto found = patternfind(data, datasize, patch.search);
-        if (found == -1) {
-            logmsg("Failed to find pattern for %s...\n", patch.name.c_str());
-            continue;
+        if (found == (size_t)-1) {
+            return false;
         }
         auto buffersize = patch.replaceTr.size();
         auto buffer = new unsigned char[buffersize];
         memcpy(buffer, data + found, buffersize);
         patternwrite(buffer, buffersize, patch.replace.c_str());
 
-        if (write_memory(data + found, buffer, buffersize)) {
-            patched++;
-        } else {
+        bool ok = write_memory(data + found, buffer, buffersize);
+        if (!ok) {
         #ifdef _WIN32
             logmsg("Writing memory failed (%d)...\n", GetLastError());
         #else
             logmsg("Writing memory failed (%d)...\n", errno);
         #endif
         }
-
         delete[] buffer;
+        return ok;
+    };
+
+    while (true) {
+        bool any_pending = false;
+        bool applied_this_iteration = false;
+        for (auto &patch : patches) {
+            if (patch.applied)
+                continue;
+            any_pending = true;
+
+            if (try_apply(patch)) {
+                patch.applied = true;
+                patched++;
+                applied_this_iteration = true;
+                logmsg("%s applied!\n", patch.name.c_str());
+            }
+        }
+
+        if (!any_pending)
+            break;
+
+        // backoff (cpu hurty)
+        if (applied_this_iteration)
+            sleep_ms = 250;
+        else {
+            if (sleep_ms < 5000)
+                sleep_ms *= 2;
+            if (sleep_ms > 5000)
+                sleep_ms = 5000;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
 
     logmsg("%d/%d patches successful!\n", patched, int(patches.size()));
@@ -147,7 +180,11 @@ BOOL WINAPI DllMain(
             if (GetModuleFileNameA(hinstDLL, patchIni, sizeof(patchIni))) {
                 *strrchr(patchIni, '\\') = '\0';
                 strcat_s(patchIni, "\\idapatch.ini");
-                do_patching(patchIni);
+                try {
+                    std::thread([path = std::string(patchIni)](){ do_patching(path); }).detach();
+                } catch (...) {
+                    do_patching(patchIni); // patch if we fail to thread, at least some will apply
+                }
             }
         }
     }
@@ -168,7 +205,7 @@ __attribute__((constructor)) static void on_load() {
         if (patchIni) {
             *strrchr(patchIni, '/') = '\0';
             strncat(patchIni, "/idapatch.ini", 14);
-            do_patching(patchIni);
+            std::thread([path = std::string(patchIni)](){ do_patching(path); }).detach();
             free(patchIni);
         }
     }
