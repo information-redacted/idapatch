@@ -54,10 +54,31 @@ static void do_patching(std::string_view ini_file) {
         logmsg("[idapatch] Creating stream for INI file (%s) failed...\n", ini_file.data());
     }
 
+    int loop_delay_ms = 2000; // default to 2s
+    for (const auto& section : ini.Sections()) {
+        if (section == "idapatch_settings") {
+            auto val = ini.GetValue("idapatch_settings", "loop_delay_ms");
+            if (!val.empty()) {
+                try {
+                    int parsed = std::stoi(val);
+                    if (parsed > 0)
+                        loop_delay_ms = parsed;
+                } catch (...) {
+                    // invalid, keep default
+                }
+            }
+            break;
+        }
+    }
+    logmsg("[idapatch] Loop delay set to %d ms\n", loop_delay_ms);
+
     std::vector<Patch> patches;
     auto sections = ini.Sections();
     patches.reserve(sections.size());
     for (const auto& section : sections) {
+        if (section == "idapatch_settings")
+            continue;
+
         Patch patch;
         patch.name = section;
         auto searchData = ini.GetValue(section, "search");
@@ -73,7 +94,7 @@ static void do_patching(std::string_view ini_file) {
             logmsg("[idapatch] Invalid data in patch '%s'...\n", section.c_str());
             continue;
         }
-        logmsg("[idapatch] patch '%s' loaded!\n", patch.name.c_str());
+        logmsg("[idapatch] Patch '%s' loaded!\n", patch.name.c_str());
         patches.push_back(patch);
     }
 
@@ -136,7 +157,7 @@ static void do_patching(std::string_view ini_file) {
         for (auto &patch : patches) {
             if (patch.applied && !is_module_loaded(patch.module)) {
                 patch.applied = false;
-                logmsg("[idapatch] patch '%s' reverted (module unloaded)\n", patch.name.c_str());
+                logmsg("[idapatch] Patch '%s' reverted (module unloaded)\n", patch.name.c_str());
             }
 
             if (patch.applied)
@@ -146,20 +167,20 @@ static void do_patching(std::string_view ini_file) {
                 patch.applied = true;
                 patched++;
                 applied_this_iteration = true;
-                logmsg("[idapatch] patch '%s' applied!\n", patch.name.c_str());
+                logmsg("[idapatch] Patch '%s' applied!\n", patch.name.c_str());
             }
         }
 
         if (applied_this_iteration)
             sleep_ms = 250;
         else {
-            if (sleep_ms < 1000) sleep_ms *= 2;
-            if (sleep_ms > 1000) sleep_ms = 1000;
+            if (sleep_ms < loop_delay_ms)
+                sleep_ms *= 2;
+            if (sleep_ms > loop_delay_ms)
+                sleep_ms = loop_delay_ms;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
-
-    logmsg("%d/%d patches successful!\n", patched, int(patches.size()));
 }
 
 struct plugin_ctx_t : public plugmod_t {
